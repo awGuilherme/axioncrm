@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Portal AwTech BI</title>
+
+    <!-- MSAL.js (Autenticação AAD) -->
+    <script src="https://alcdn.msauth.net/browser/2.21.0/js/msal-browser.min.js"></script>
+
+    <!-- Power BI Client -->
+    <script src="https://cdn.jsdelivr.net/npm/powerbi-client@2.22.3/dist/powerbi.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: "Segoe UI", sans-serif;
+            background-color: #f4f6f8;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            /* impede scroll */
+        }
+
+        .login-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+            margin: auto;
+            position: relative;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .login-container img {
+            max-width: 120px;
+            margin-bottom: 1rem;
+        }
+
+        h2 {
+            font-size: 1.4rem;
+            margin-bottom: 1.5rem;
+            color: #222;
+        }
+
+        .file-input {
+            margin: 1rem 0;
+        }
+
+        button {
+            background: #0056b3;
+            border: none;
+            padding: 12px;
+            color: white;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        button:hover {
+            background: #003f82;
+        }
+
+        #reportContainer {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: 100vw;
+            border: none;
+        }
+
+        /* Botão de tela cheia no canto superior direito */
+        #fullscreenBtn {
+            display: none;
+            /* só aparece depois do login */
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            z-index: 9999;
+            font-size: 0.9rem;
+        }
+
+        #fullscreenBtn:hover {
+            background: rgba(0, 0, 0, 0.8);
+        }
+    </style>
+
+    <!-- Botão de tela cheia -->
+    <button id="fullscreenBtn">⛶ Tela Cheia</button>
+
+    <script>
+        const fullscreenBtn = document.getElementById("fullscreenBtn");
+
+        // Função de tela cheia
+        fullscreenBtn.addEventListener("click", () => {
+            const container = document.getElementById("reportContainer");
+
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => {
+                    alert(`Erro ao ativar tela cheia: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Exibe o botão de fullscreen quando o relatório aparecer
+        function showReport() {
+            document.getElementById("loginSection").style.display = "none";
+            document.getElementById("reportContainer").style.display = "block";
+            fullscreenBtn.style.display = "block"; // aparece junto com o report
+        }
+    </script>
+
+</head>
+
+<body>
+    <!-- Tela de Login -->
+    <div class="login-container" id="loginScreen">
+        <img id="logoPreview" src="" alt="Logo da AwTech" />
+        <h2>Bem-vindo ao Portal AwTech BI</h2>
+
+        <div class="file-input">
+            <label>Carregar Logo:</label>
+            <input type="file" id="logoInput" accept="image/*" />
+        </div>
+
+        <div class="file-input">
+            <label>Carregar Background:</label>
+            <input type="file" id="bgInput" accept="image/*" />
+        </div>
+
+        <button onclick="signIn()">Entrar</button>
+    </div>
+
+    <!-- Contêiner do relatório -->
+    <div id="reportContainer"></div>
+
+    <script>
+        // Configuração MSAL (Azure AD)
+        const msalConfig = {
+            auth: {
+                clientId: "07f665e8-ad05-4138-8472-a953925d9501",
+                authority: "https://login.microsoftonline.com/259ab3a2-4aaf-473e-b6bd-1764edd9e725",
+                redirectUri: "http://localhost:5500"
+            }
+        };
+
+        const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+        // Escopos de acesso ao Power BI
+        const loginRequest = {
+            scopes: ["https://analysis.windows.net/powerbi/api/.default"]
+        };
+
+        // IDs do seu relatório Power BI
+        const groupId = "53488486-1001-4b51-8ff5-bb49ced0f635";
+        const reportId = "c8bfe2f3-b872-40a3-9d38-bd6c0fe90633";
+
+        // Pré-visualizar logo antes de login
+        document.getElementById("logoInput").addEventListener("change", function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = ev => {
+                    document.getElementById("logoPreview").src = ev.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Função de login e embed
+        async function signIn() {
+            try {
+                const loginResponse = await msalInstance.loginPopup(loginRequest);
+                console.log("✅ Login bem-sucedido:", loginResponse);
+
+                const account = msalInstance.getAllAccounts()[0];
+                msalInstance.setActiveAccount(account);
+
+                // Obter token para Power BI
+                const tokenResponse = await msalInstance.acquireTokenSilent({
+                    ...loginRequest,
+                    account: account
+                });
+
+                const accessToken = tokenResponse.accessToken;
+                console.log("🔑 Token obtido:", accessToken);
+
+                // Buscar detalhes do relatório
+                const reportResponse = await fetch(
+                    `https://api.powerbi.com/v1.0/myorg/groups/${groupId}/reports/${reportId}`,
+                    { headers: { Authorization: `Bearer ${accessToken}` } }
+                );
+
+                if (!reportResponse.ok) {
+                    throw new Error("Falha ao buscar detalhes do relatório: " + reportResponse.status);
+                }
+
+                const report = await reportResponse.json();
+                console.log("📊 Relatório carregado:", report);
+
+                // Esconde tela de login e mostra relatório
+                document.getElementById("loginScreen").style.display = "none";
+                const reportContainer = document.getElementById("reportContainer");
+                reportContainer.style.display = "block";
+
+                // Embed do Power BI
+                const models = window["powerbi-client"].models;
+                const embedConfig = {
+                    type: "report",
+                    id: report.id,
+                    embedUrl: report.embedUrl,
+                    accessToken: accessToken,
+                    tokenType: models.TokenType.Aad,
+                    settings: {
+                        panes: {
+                            filters: { visible: false },
+                            pageNavigation: { visible: false }
+                        },
+                        navContentPaneEnabled: false
+                    }
+                };
+
+                // 🔥 Correção: usar o singleton do SDK
+                powerbi.embed(reportContainer, embedConfig);
+
+            } catch (error) {
+                console.group("⚠️ ERRO NO EMBED POWER BI");
+                console.error("Mensagem:", error.message || error);
+                console.error("Objeto completo:", error);
+                if (error.stack) console.error("Stack Trace:", error.stack);
+                console.groupEnd();
+
+                alert("❌ Ocorreu um erro. Veja detalhes no console (F12).");
+            }
+        }
+    </script>
+</body>
+
+</html>

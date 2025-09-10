@@ -1,20 +1,20 @@
 let
     Fonte = MySQL.Database(
-        "localhost", 
-        "adaptweb01", 
+        "147.79.82.25", 
+        Banco, 
         [ReturnSingleDatabase = true]
     ),
-   
-    adaptweb01_neg_prospecter = Fonte{
+    
+    neg_prospecter = Fonte{
         [
-            Schema = "adaptweb01", 
+            Schema = Banco, 
             Item = "neg_prospecter"
         ]
     }
     [Data],
    
     #"Outras Colunas Removidas" = Table.SelectColumns(
-        adaptweb01_neg_prospecter,
+        neg_prospecter,
         {
             "idnp",
             "empresa",
@@ -40,26 +40,8 @@ let
         }
     ),
    
-    #"Linhas Classificadas" = Table.Sort(
-        #"Outras Colunas Removidas", {
-            {
-                "registro", 
-                Order.Descending
-            }
-        }
-    ),
-   
-    #"Tipo Alterado" = Table.TransformColumnTypes(
-        #"Linhas Classificadas",{
-            {
-                "registro", 
-                type date
-            }
-        }
-    ),
-   
-    #"Consultas Mescladas" = Table.NestedJoin(
-        #"Tipo Alterado", 
+   #"Consultas Mescladas" = Table.NestedJoin(
+        #"Outras Colunas Removidas", 
         {"idnp"}, 
         dVendedor, 
         {"id_negp"}, 

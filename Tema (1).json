@@ -1,0 +1,86 @@
+﻿{
+  "name": "Data Expert",
+  "dataColors": [
+    "#177A91",
+    "#FA8187",
+    "#34CDBE",
+    "#D9A5FF",
+    "#19203A",
+    "#19203A",
+    "#19203A",
+    "#262D47",
+    "#3599B8",
+    "#DFBFBF",
+    "#4AC5BB",
+    "#5F6B6D",
+    "#FB8281",
+    "#F4D25A",
+    "#7F898A",
+    "#A4DDEE",
+    "#FDAB89",
+    "#B687AC",
+    "#28738A",
+    "#A78F8F",
+    "#168980",
+    "#293537",
+    "#BB4A4A",
+    "#B59525",
+    "#475052",
+    "#6A9FB0",
+    "#BD7150",
+    "#7B4F71",
+    "#1B4D5C",
+    "#706060",
+    "#0F5C55",
+    "#1C2325"
+  ],
+  "foreground": "#FFFFFF",
+  "foregroundNeutralSecondary": "#E6E6E6",
+  "backgroundLight": "#FFFFFF",
+  "textClasses": {
+    "label": { "color": "#FFFFFF", "fontSize": 12 },
+    "callout": {
+      "color": "#FFFFFF",
+      "fontFace": "'Segoe UI Bold', wf_segoe-ui_bold, helvetica, arial, sans-serif",
+      "fontSize": 13
+    },
+    "title": {
+      "color": "#E6E6E6",
+      "fontFace": "Segoe UI Semibold",
+      "fontSize": 10
+    }
+  },
+  "visualStyles": {
+    "*": {
+      "*": {
+        "labels": [{ "show": true }],
+        "categoryAxis": [
+          { "show": true, "gridlineShow": false, "showAxisTitle": false }
+        ],
+        "valueAxis": [
+          { "show": false, "gridlineShow": false, "showAxisTitle": false }
+        ],
+        "outspacePane": [
+          {
+            "checkboxAndApplyColor": { "solid": { "color": "#7870FC" } },
+            "backgroundColor": { "solid": { "color": "#0F8C8C" } }
+          }
+        ],
+        "background": [{ "transparency": 100 }],
+        "visualTooltip": [
+          { "themedBackground": { "solid": { "color": "#377E74" } } }
+        ],
+        "visualHeaderTooltip": [
+          { "themedBackground": { "solid": { "color": "#377E74" } } }
+        ]
+      }
+    },
+    "page": {
+      "*": {
+        "background": [
+          { "color": { "solid": { "color": "#FFFFFF" } }, "transparency": 100 }
+        ]
+      }
+    }
+  }
+}
