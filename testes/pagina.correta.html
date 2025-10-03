@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>AwTech — Embed PBI (auto-rotate páginas)</title>
+
+  <!-- MSAL e PowerBI -->
+  <script src="https://alcdn.msauth.net/browser/2.21.0/js/msal-browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/powerbi-client@2.22.3/dist/powerbi.min.js"></script>
+
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    body {
+      background: #0f1113;
+      color: #fff;
+      overflow: hidden;
+    }
+
+    .center {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+
+    .login-card {
+      width: 420px;
+      background: #fff;
+      color: #111;
+      border-radius: 10px;
+      padding: 18px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+    }
+
+    button.primary {
+      width: 100%;
+      padding: 10px;
+      background: #1f62ff;
+      color: #fff;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    #reportContainer {
+      display: none;
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 20;
+      background: transparent;
+    }
+
+    #controls {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 40;
+      display: none;
+      gap: 8px;
+    }
+
+    .ctrl-btn {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 0;
+      cursor: pointer;
+      background: rgba(0, 0, 0, 0.45);
+      color: #fff;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="center" id="loginArea">
+    <div class="login-card">
+      <h2>AwTech — Portal (Apresentação)</h2>
+      <button id="btnSignIn" class="primary" style="margin-top:12px">Conectar (Azure AD)</button>
+      <div class="hint">Abra DevTools (F12) → Console para ver os IDs de página.<br>Auto-rotate entre páginas 1 e 4.</div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <button id="btnToggleRotate" class="ctrl-btn">⏯ Pausar rotação</button>
+    <button id="btnFullscreen" class="ctrl-btn">⛶ Tela cheia</button>
+    <button id="btnLogout" class="ctrl-btn">⎋ Logout</button>
+  </div>
+
+  <div id="reportContainer" aria-hidden="true"></div>
+
+  <script>
+    const msalConfig = {
+      auth: {
+        clientId: "07f665e8-ad05-4138-8472-a953925d9501",
+        authority: "https://login.microsoftonline.com/259ab3a2-4aaf-473e-b6bd-1764edd9e725",
+        redirectUri: "http://localhost:5500"
+      }
+    };
+
+    const MSAL_SCOPES = ["https://analysis.windows.net/powerbi/api/.default"];
+    const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+    const GROUP_ID = "53488486-1001-4b51-8ff5-bb49ced0f635";
+    const REPORT_ID = "c8bfe2f3-b872-40a3-9d38-bd6c0fe90633";
+
+    let embeddedReport = null;
+    let pagesCache = [];
+    let autoRotateTimer = null;
+    let rotateOn = true;
+    const ROTATE_INTERVAL_MS = 60000;
+    let rotateIndices = [0, 3];
+    let rotatePos = 0;
+
+    const btnSignIn = document.getElementById('btnSignIn');
+    const loginArea = document.getElementById('loginArea');
+    const reportContainer = document.getElementById('reportContainer');
+    const controls = document.getElementById('controls');
+    const btnToggleRotate = document.getElementById('btnToggleRotate');
+    const btnFullscreen = document.getElementById('btnFullscreen');
+    const btnLogout = document.getElementById('btnLogout');
+
+    btnFullscreen.addEventListener('click', async () => {
+      if (!document.fullscreenElement) await reportContainer.requestFullscreen();
+      else await document.exitFullscreen();
+    });
+
+    btnLogout.addEventListener('click', async () => {
+      try {
+        const accounts = msalInstance.getAllAccounts();
+        if (accounts.length) await msalInstance.logoutPopup({ account: accounts[0] });
+      } catch {}
+      if (embeddedReport) powerbi.reset(reportContainer);
+      embeddedReport = null; pagesCache = [];
+      if (autoRotateTimer) clearInterval(autoRotateTimer);
+      rotateOn = true; rotatePos = 0;
+      controls.style.display = 'none';
+      reportContainer.style.display = 'none';
+      loginArea.style.display = 'flex';
+    });
+
+    btnToggleRotate.addEventListener('click', () => {
+      rotateOn = !rotateOn;
+      btnToggleRotate.textContent = rotateOn ? "⏯ Pausar rotação" : "▶ Retomar rotação";
+    });
+
+    async function acquireToken(account) {
+      try {
+        const silent = await msalInstance.acquireTokenSilent({ scopes: MSAL_SCOPES, account });
+        return silent.accessToken;
+      } catch {
+        const pop = await msalInstance.acquireTokenPopup({ scopes: MSAL_SCOPES });
+        return pop.accessToken;
+      }
+    }
+
+    function startAutoRotate() {
+      if (autoRotateTimer) clearInterval(autoRotateTimer);
+      if (!pagesCache || pagesCache.length === 0) return;
+
+      rotateIndices = rotateIndices.filter(i => i >= 0 && i < pagesCache.length);
+      if (rotateIndices.length === 0) return;
+
+      rotatePos = 0;
+      (async () => {
+        try { await pagesCache[rotateIndices[rotatePos]].setActive(); } catch {}
+      })();
+
+      autoRotateTimer = setInterval(async () => {
+        if (!rotateOn) return;
+        rotatePos = (rotatePos + 1) % rotateIndices.length;
+        const idx = rotateIndices[rotatePos];
+        try {
+          await pagesCache[idx].setActive();
+          console.info("Auto-rotate -> página:", idx, pagesCache[idx].displayName);
+        } catch (err) {
+          console.error("Erro setActive:", err);
+        }
+      }, ROTATE_INTERVAL_MS);
+    }
+
+    btnSignIn.addEventListener('click', async () => {
+      try {
+        const loginRes = await msalInstance.loginPopup({ scopes: MSAL_SCOPES });
+        const token = await acquireToken(loginRes.account);
+
+        const url = `https://api.powerbi.com/v1.0/myorg/groups/${GROUP_ID}/reports/${REPORT_ID}`;
+        const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+        const reportMeta = await resp.json();
+
+        const models = window['powerbi-client'].models;
+        const embedConfig = {
+          type: 'report',
+          id: reportMeta.id,
+          embedUrl: reportMeta.embedUrl,
+          accessToken: token,
+          tokenType: models.TokenType.Aad,
+          settings: {
+            panes: { filters: { visible: false } },
+            navContentPaneEnabled: false,
+            // 🔑 NÃO usar Transparent → mantém fundo do PBIX
+            pageNavigation: { visible: false }
+          }
+        };
+
+        embeddedReport = powerbi.embed(reportContainer, embedConfig);
+
+        embeddedReport.on("loaded", async () => {
+          pagesCache = await embeddedReport.getPages();
+          pagesCache.forEach((p, i) => console.log(`Página ${i + 1}: "${p.displayName}" | ID="${p.name}"`));
+
+          if (pagesCache.length >= 4) {
+            rotateIndices = [0, 3];
+            startAutoRotate();
+          } else {
+            console.warn("Menos de 4 páginas, rotação não iniciada.");
+          }
+
+          loginArea.style.display = 'none';
+          reportContainer.style.display = 'block';
+          controls.style.display = 'flex';
+          reportContainer.setAttribute('aria-hidden', 'false');
+        });
+
+        embeddedReport.on("error", evt => console.error("Embed error:", evt));
+
+      } catch (err) {
+        console.error("Erro embed:", err);
+        alert("Erro no embed. Veja console (F12).");
+      }
+    });
+  </script>
+</body>
+</html>

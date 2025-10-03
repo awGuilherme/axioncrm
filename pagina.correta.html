@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="utf-8" />
+    <title>AwTech — Embed PBI (auto-rotate páginas)</title>
+
+    <!-- MSAL e PowerBI -->
+    <script src="https://alcdn.msauth.net/browser/2.21.0/js/msal-browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/powerbi-client@2.22.3/dist/powerbi.min.js"></script>
+
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        body {
+            margin: 0;
+            font-family: "Segoe UI", sans-serif;
+            background-color: #000;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }
+
+        #reportContainer {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: 100vw;
+            border: none;
+        }
+
+        .login-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+            margin: auto;
+            position: relative;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .login-container img {
+            max-width: 120px;
+            margin-bottom: 1rem;
+        }
+
+        h2 {
+            font-size: 1.4rem;
+            margin-bottom: 1.5rem;
+            color: #222;
+        }
+
+        button {
+            background: #0056b3;
+            border: none;
+            padding: 12px;
+            color: white;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        button:hover {
+            background: #003f82;
+        }
+
+        /* Botão de tela cheia */
+        #fullscreenBtn {
+            display: none;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            z-index: 9999;
+            font-size: 0.9rem;
+        }
+
+        #fullscreenBtn:hover {
+            background: rgba(0, 0, 0, 0.8);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="center" id="loginArea">
+        <div class="login-card">
+            <h2>AwTech — Portal (Apresentação)</h2>
+
+            <label>Carregar Logo (opcional)</label>
+            <input id="logoInput" type="file" accept="image/*">
+
+            <label style="margin-top:8px">Carregar Background do login (opcional)</label>
+            <input id="bgInput" type="file" accept="image/*">
+
+            <button id="btnSignIn" class="primary" style="margin-top:12px">Conectar (Azure AD)</button>
+            <div class="hint">Após o carregamento abra DevTools (F12) → Console para ver pageId. Auto-rotate inicia
+                automaticamente entre páginas 1 e 4 (se existirem).</div>
+        </div>
+    </div>
+
+    <!-- controles durante o embed -->
+    <div id="controls">
+        <button id="btnToggleRotate" class="ctrl-btn">⏯ Pausar rotação</button>
+        <button id="btnFullscreen" class="ctrl-btn">⛶ Tela cheia</button>
+        <button id="btnLogout" class="ctrl-btn">⎋ Logout</button>
+    </div>
+
+    <div id="reportContainer" aria-hidden="true"></div>
+
+    <script>
+        /* ========== CONFIG (substituir se necessário) ========== */
+        const CLIENT_ID = "07f665e8-ad05-4138-8472-a953925d9501";
+        const TENANT_ID = "259ab3a2-4aaf-473e-b6bd-1764edd9e725";
+        const REDIRECT_URI = "http://localhost:5500";
+        const GROUP_ID = "53488486-1001-4b51-8ff5-bb49ced0f635";
+        const REPORT_ID = "c8bfe2f3-b872-40a3-9d38-bd6c0fe90633";
+
+        const MSAL_SCOPES = [
+            "openid", "profile", "offline_access",
+            "https://analysis.windows.net/powerbi/api/Report.Read.All"
+        ];
+        /* ===================================================== */
+
+        const msalInstance = new msal.PublicClientApplication({
+            auth: { clientId: CLIENT_ID, authority: `https://login.microsoftonline.com/${TENANT_ID}`, redirectUri: REDIRECT_URI },
+            cache: { cacheLocation: "localStorage" }
+        });
+
+        const btnSignIn = document.getElementById('btnSignIn');
+        const logoInput = document.getElementById('logoInput');
+        const bgInput = document.getElementById('bgInput');
+        const loginArea = document.getElementById('loginArea');
+        const reportContainer = document.getElementById('reportContainer');
+        const controls = document.getElementById('controls');
+        const btnToggleRotate = document.getElementById('btnToggleRotate');
+        const btnFullscreen = document.getElementById('btnFullscreen');
+        const btnLogout = document.getElementById('btnLogout');
+
+        let embeddedReport = null;
+        let pagesCache = [];
+        let autoRotateTimer = null;
+        let rotateOn = true;
+        const ROTATE_INTERVAL_MS = 60000; // 1 minuto
+        let rotateIndices = [0, 3]; // por padrão: página 1 (index 0) e página 4 (index 3)
+        let rotatePos = 0;
+
+        // previews uploads
+        logoInput.addEventListener('change', (e) => {
+            const f = e.target.files[0]; if (!f) return;
+            const r = new FileReader();
+            r.onload = ev => {
+                // opcional: mostrar logo no login (simples alert aqui)
+                console.info("Logo carregada (preview):", ev.target.result.substring(0, 120) + "...");
+            };
+            r.readAsDataURL(f);
+        });
+        bgInput.addEventListener('change', (e) => {
+            const f = e.target.files[0]; if (!f) return;
+            const r = new FileReader();
+            r.onload = ev => document.body.style.background = `url(${ev.target.result}) center/cover no-repeat`;
+            r.readAsDataURL(f);
+        });
+
+        // fullscreen
+        btnFullscreen.addEventListener('click', async () => {
+            try {
+                if (!document.fullscreenElement) await reportContainer.requestFullscreen();
+                else await document.exitFullscreen();
+            } catch (e) { console.error("Fullscreen error:", e); }
+        });
+
+        // logout (limpa cache local e recarrega)
+        btnLogout.addEventListener('click', async () => {
+            try {
+                const accounts = msalInstance.getAllAccounts();
+                if (accounts.length) await msalInstance.logoutPopup({ account: accounts[0] });
+            } catch (e) { console.warn("Logout falhou:", e); }
+            // reinicia UI
+            if (embeddedReport) powerbi.reset(reportContainer);
+            embeddedReport = null; pagesCache = [];
+            if (autoRotateTimer) clearInterval(autoRotateTimer);
+            rotateOn = true; rotatePos = 0;
+            controls.style.display = 'none';
+            reportContainer.style.display = 'none';
+            loginArea.style.display = 'flex';
+            document.body.style.background = '#0f1113';
+        });
+
+        // toggle rotate
+        btnToggleRotate.addEventListener('click', () => {
+            rotateOn = !rotateOn;
+            btnToggleRotate.textContent = rotateOn ? "⏯ Pausar rotação" : "▶ Retomar rotação";
+        });
+
+        // helper: acquire token silent then popup
+        async function acquireToken(account) {
+            try {
+                const silent = await msalInstance.acquireTokenSilent({ scopes: MSAL_SCOPES, account });
+                return silent.accessToken;
+            } catch (err) {
+                console.warn("acquireTokenSilent falhou, abrindo popup...", err);
+                const pop = await msalInstance.acquireTokenPopup({ scopes: MSAL_SCOPES });
+                return pop.accessToken;
+            }
+        }
+
+        // start auto rotate given rotateIndices array (indices on pagesCache)
+        function startAutoRotate() {
+            if (autoRotateTimer) clearInterval(autoRotateTimer);
+            if (!pagesCache || pagesCache.length === 0) { console.warn("Sem páginas para rotacionar"); return; }
+            // validate indices exist
+            rotateIndices = rotateIndices.filter(i => Number.isInteger(i) && i >= 0 && i < pagesCache.length);
+            if (rotateIndices.length === 0) { console.warn("Nenhum índice válido para rotação"); return; }
+            // ensure starting page is the first in rotateIndices
+            rotatePos = 0;
+            (async () => {
+                try { await pagesCache[rotateIndices[rotatePos]].setActive(); } catch (e) { console.warn("setActive inicial falhou:", e); }
+            })();
+            autoRotateTimer = setInterval(async () => {
+                if (!rotateOn) return;
+                rotatePos = (rotatePos + 1) % rotateIndices.length;
+                const idx = rotateIndices[rotatePos];
+                try {
+                    await pagesCache[idx].setActive();
+                    console.info("Auto-rotate -> setActive page:", idx, pagesCache[idx].displayName);
+                } catch (err) {
+                    console.error("Erro setActive (auto-rotate):", err);
+                }
+            }, ROTATE_INTERVAL_MS);
+        }
+
+        // main sign-in and embed flow
+        btnSignIn.addEventListener('click', async () => {
+            try {
+                // login
+                const loginRes = await msalInstance.loginPopup({ scopes: MSAL_SCOPES });
+                console.info("Login bem-sucedido:", loginRes.account ? loginRes.account.username : loginRes);
+
+                // token
+                const token = await acquireToken(loginRes.account);
+                console.info("Token obtido (início):", token ? token.substring(0, 40) + "..." : null);
+
+                // get metadata
+                const url = `https://api.powerbi.com/v1.0/myorg/groups/${GROUP_ID}/reports/${REPORT_ID}`;
+                const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+                if (!resp.ok) throw new Error(`Falha metadados report: ${resp.status}`);
+                const reportMeta = await resp.json();
+                console.info("Report metadata:", reportMeta);
+
+                // embed config (background Transparent — para HTML por baixo aparecer)
+                const models = window['powerbi-client'].models;
+                const embedConfig = {
+                    type: 'report',
+                    id: reportMeta.id,
+                    embedUrl: reportMeta.embedUrl,
+                    accessToken: token,
+                    tokenType: models.TokenType.Aad,
+                    settings: {
+                        panes: { filters: { visible: false } },
+                        navContentPaneEnabled: false,
+                        background: models.BackgroundType.Transparent,
+                        pageNavigation: { visible: false }
+                    }
+                };
+
+                // embed and store reference
+                embeddedReport = powerbi.embed(reportContainer, embedConfig);
+
+                // when loaded, fetch pages and start auto-rotate between indices [0,3] if there are >=4 pages
+                embeddedReport.on("loaded", async () => {
+                    console.info("✅ Relatório carregado (evento loaded). Obtendo páginas...");
+                    try {
+                        pagesCache = await embeddedReport.getPages();
+                        if (!pagesCache || pagesCache.length === 0) {
+                            console.warn("getPages() retornou vazio.");
+                        } else {
+                            pagesCache.forEach((p, i) => console.log(`Página ${i + 1}: displayName="${p.displayName}" | pageId="${p.name}" | isActive=${p.isActive}`));
+                            // prepare rotation indices: default 1 e 4 -> index 0 e 3
+                            if (pagesCache.length >= 4) {
+                                rotateIndices = [0, 3];
+                                // start auto-rotate
+                                startAutoRotate();
+                            } else {
+                                console.warn("Menos de 4 páginas: auto-rotate não iniciado. Ajuste rotateIndices conforme necessário.");
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Erro getPages():", e);
+                    }
+                    // show UI
+                    loginArea.style.display = 'none';
+                    reportContainer.style.display = 'block';
+                    controls.style.display = 'flex';
+                    reportContainer.setAttribute('aria-hidden', 'false');
+                    // ensure body overflow hidden
+                    document.documentElement.style.overflow = 'hidden';
+                    document.body.style.overflow = 'hidden';
+                });
+
+                embeddedReport.on("error", evt => console.error("Embed error:", evt && evt.detail ? evt.detail : evt));
+
+            } catch (err) {
+                console.error("Erro no fluxo embed:", err);
+                alert("Erro no embed. Veja console (F12).");
+            }
+        });
+
+        /* ========== Fix rápido do Background vs Fix definitivo no PBIX ==========
+        
+        Por que o background não apareceu?
+        - Mesmo que o embed use `background: Transparent`, isso só faz o *canvas* ficar transparente.
+        - Se o relatório foi desenhado sobre uma forma/shape que NÃO está no canvas (ex: você tinha bordas brancas),
+          ou se os visuais/tabelas têm fundo branco, eles continuarão aparecendo por cima do fundo do HTML.
+        
+        Soluções:
+        
+        1) FIX RÁPIDO (já aplicado no HTML):
+           - Este HTML define `body { background: #0f1113 }` (uma cor escura).
+           - Se seu relatório tiver Page Background transparente, essa cor irá aparecer por trás (boa para demo).
+           - Se quiser usar imagem SVG do design, use o upload do BG no login — o body ficará com essa imagem.
+        
+        2) FIX IDEAL (recomendado no Power BI Desktop):
+           - Abra o .pbix no Power BI Desktop.
+           - Na aba de cada página: Format (rolo de pintura) → Page background → Transparência = 100% (ou escolha a cor desejada).
+           - Insira uma SHAPE (Rounded rectangle) que cubra toda a página:
+               Inserir → Formas → Rounded Rectangle → coloque atrás de todos os visuais (Format → Send to back).
+               Defina Fill com a cor escura (#0f1113), sem borda, e bloqueie (Selection Pane → Lock).
+           - Para cada visual que tiver fundo branco: selecione o visual → Format → Background → Transparency = 100% (ou Off).
+           - Para tabelas/matrizes: Formatação → grid/background rows → deixe transparente.
+           - Salve e publique. Isso garante fidelidade total do design durante o embed.
+        
+        =================================================================== */
+    </script>
+</body>
+
+</html>
